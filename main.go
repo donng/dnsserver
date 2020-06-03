@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"golang.org/x/net/dns/dnsmessage"
 	"log"
@@ -19,6 +20,11 @@ type Packet struct {
 	addr    *net.UDPAddr
 	message dnsmessage.Message
 }
+
+const (
+	Port   = 53
+	Length = 512
+)
 
 var (
 	rw       sync.RWMutex
@@ -39,17 +45,21 @@ var (
 // 客户端访问服务： nslookup somewhere.com some.dns.server
 // dig @localhost somewhere.com
 func main() {
+	port := flag.Int("p", Port, "服务端口号，默认为53")
+	flag.Parse()
+
 	var err error
 	conn, err = net.ListenUDP("udp", &net.UDPAddr{
-		Port: 53,
+		Port: *port,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer conn.Close()
+	fmt.Printf("服务已启动，端口号：%d \n", port)
 
 	for {
-		buf := make([]byte, 512)
+		buf := make([]byte, Length)
 		// 通过conn读取UDP报文，将数据填充到buf中
 		_, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
@@ -100,12 +110,11 @@ func query(p Packet) {
 func sendPacket(domain string, p Packet) {
 	// 获得需要响应的数据
 	rw.Lock()
-	packets := messages[domain]
-	for i, packet := range packets {
+	for i, packet := range messages[domain] {
 		if p.message.Header.ID == packet.message.Header.ID {
 			// 删除当前元素
 			if len(messages[domain])-1 == i {
-				messages[domain] = messages[domain][:len(packets)-1]
+				messages[domain] = messages[domain][:len(messages[domain])-1]
 			} else {
 				messages[domain] = append(messages[domain][:i], messages[domain][i+1:]...)
 			}
@@ -113,9 +122,11 @@ func sendPacket(domain string, p Packet) {
 			packed, err := p.message.Pack()
 			if err != nil {
 				fmt.Println(err)
+				break
 			}
 			if _, err := conn.WriteToUDP(packed, packet.addr); err != nil {
 				fmt.Printf("响应错误 err: %s \n", err)
+				break
 			}
 			break
 		}
