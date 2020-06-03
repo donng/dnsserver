@@ -6,13 +6,14 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 )
 
 // 存储响应
 type Store struct {
 	sync.RWMutex
-	data map[string][]dnsmessage.Resource
+	data map[string]dnsmessage.Message
 }
 
 // 包数据
@@ -29,6 +30,7 @@ const (
 var (
 	rw       sync.RWMutex
 	conn     *net.UDPConn
+	store    Store
 	messages = make(map[string][]Packet)
 )
 
@@ -56,8 +58,17 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close()
-	fmt.Printf("服务已启动，端口号：%d \n", port)
+	fmt.Printf("服务已启动，端口号：%d \n", *port)
 
+	// 启动查询缓存的服务
+	go func() {
+		http.HandleFunc("/cache", func(writer http.ResponseWriter, request *http.Request) {
+			fmt.Fprintf(writer, "%+v", store.data)
+		})
+		http.ListenAndServe(":8089", nil)
+	}()
+
+	store.data = make(map[string]dnsmessage.Message)
 	for {
 		buf := make([]byte, Length)
 		// 通过conn读取UDP报文，将数据填充到buf中
@@ -92,6 +103,19 @@ func query(p Packet) {
 		return
 	}
 
+	// 客户端请求首先查询缓存
+	if message, ok := store.data[domain]; ok {
+		fmt.Println("缓存命中，当前查询域名：", domain)
+		// 响应客户端的地址在p中存储，数据在缓存store中存储
+		// 请求头Header中的ID需要修改为当前请求的ID
+		message.ID = p.message.ID
+		go sendToClient(Packet{
+			addr: p.addr,
+			message: message,
+		})
+		return
+	}
+
 	packed, err := p.message.Pack()
 	if err != nil {
 		fmt.Printf("packet pack err: %s \n", err)
@@ -108,30 +132,37 @@ func query(p Packet) {
 }
 
 func sendPacket(domain string, p Packet) {
+	// 缓存响应信息
+	store.data[domain] = p.message
 	// 获得需要响应的数据
 	rw.Lock()
 	for i, packet := range messages[domain] {
-		if p.message.Header.ID == packet.message.Header.ID {
+		if p.message.ID == packet.message.ID {
 			// 删除当前元素
 			if len(messages[domain])-1 == i {
 				messages[domain] = messages[domain][:len(messages[domain])-1]
 			} else {
 				messages[domain] = append(messages[domain][:i], messages[domain][i+1:]...)
 			}
-			// 压缩数据包
-			packed, err := p.message.Pack()
-			if err != nil {
-				fmt.Println(err)
-				break
-			}
-			if _, err := conn.WriteToUDP(packed, packet.addr); err != nil {
-				fmt.Printf("响应错误 err: %s \n", err)
-				break
-			}
+			// 响应客户端的地址在messages中存储，数据在当前响应的数据报p中
+			go sendToClient(Packet{
+				addr:    packet.addr,
+				message: p.message,
+			})
 			break
 		}
 	}
 	rw.Unlock()
+}
 
-	fmt.Printf("队列长度：%d", len(messages[domain]))
+func sendToClient(p Packet) {
+	packed, err := p.message.Pack()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if _, err := conn.WriteToUDP(packed, p.addr); err != nil {
+		fmt.Printf("响应错误 err: %s \n", err)
+	}
+	fmt.Println("响应客户端请求地址", p.addr)
 }
