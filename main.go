@@ -50,7 +50,7 @@ func main() {
 
 	for {
 		buf := make([]byte, 512)
-		// 解析UDP数据
+		// 通过conn读取UDP报文，将数据填充到buf中
 		_, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			log.Println(err)
@@ -63,6 +63,7 @@ func main() {
 			log.Println(err)
 			continue
 		}
+		fmt.Printf("%+v \n", m)
 		// 无请求信息，返回
 		if len(m.Questions) == 0 {
 			continue
@@ -73,21 +74,20 @@ func main() {
 }
 
 func query(p Packet) {
-	packed, err := p.message.Pack()
-	if err != nil {
-		fmt.Printf("packet pack err: %s \n", err)
-		return
-	}
-
 	domain := p.message.Questions[0].Name.String()
 
-	// 通过 response 区分是客户端请求还是114响应
+	// 通过 response 区分是客户端请求还是转发的响应
 	if p.message.Response {
 		sendPacket(domain, p)
 		return
 	}
 
-	//	添加到队列中
+	packed, err := p.message.Pack()
+	if err != nil {
+		fmt.Printf("packet pack err: %s \n", err)
+		return
+	}
+	// 添加到队列中
 	rw.Lock()
 	messages[domain] = append(messages[domain], p)
 	rw.Unlock()
@@ -97,21 +97,17 @@ func query(p Packet) {
 	_, err = conn.WriteToUDP(packed, &resolver)
 }
 
-//todo bug1:每一个DNS的packed都有专属的ID，所以返回响应还需要匹配ID
 func sendPacket(domain string, p Packet) {
 	// 获得需要响应的数据
-	packets := messages[domain]
-
 	rw.Lock()
+	packets := messages[domain]
 	for i, packet := range packets {
 		if p.message.Header.ID == packet.message.Header.ID {
-			fmt.Printf("传入：%d 存储：%d",p.message.Header.ID, packet.message.Header.ID)
-			fmt.Printf("当前下标：%d, 当前切片长度: %d \n", i, len(packets))
 			// 删除当前元素
-			if len(packets)-1 == i {
-				messages[domain] = packets[:len(packets)-1]
+			if len(messages[domain])-1 == i {
+				messages[domain] = messages[domain][:len(packets)-1]
 			} else {
-				messages[domain] = append(packets[:i], packets[i+1:]...)
+				messages[domain] = append(messages[domain][:i], messages[domain][i+1:]...)
 			}
 			// 压缩数据包
 			packed, err := p.message.Pack()
@@ -121,7 +117,7 @@ func sendPacket(domain string, p Packet) {
 			if _, err := conn.WriteToUDP(packed, packet.addr); err != nil {
 				fmt.Printf("响应错误 err: %s \n", err)
 			}
-			continue
+			break
 		}
 	}
 	rw.Unlock()
