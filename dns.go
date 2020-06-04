@@ -81,6 +81,8 @@ func (s *DNSService) Listen(port int) {
 	}
 	defer s.conn.Close()
 
+	log.Printf("dns service start, port: %d \n", port)
+
 	for {
 		buf := make([]byte, Length)
 		_, addr, err := s.conn.ReadFromUDP(buf)
