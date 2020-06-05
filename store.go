@@ -2,28 +2,52 @@ package main
 
 import (
 	"golang.org/x/net/dns/dnsmessage"
+	"log"
 	"sync"
+	"time"
 )
 
 type Store struct {
 	sync.RWMutex
-	data map[string]dnsmessage.Message
+	data map[string]entry
+}
+
+type entry struct {
+	message   dnsmessage.Message
+	ttl       int64
+	createdAt int64
 }
 
 func NewStore() *Store {
-	return &Store{data: make(map[string]dnsmessage.Message)}
+	return &Store{data: make(map[string]entry)}
 }
 
 func (s *Store) Get(domain string) (dnsmessage.Message, bool) {
-	s.RLock()
-	message, ok := s.data[domain]
-	s.RUnlock()
+	s.Lock()
+	m, ok := s.data[domain]
+	s.Unlock()
+	// check if cache expire
+	if ok && time.Now().Unix() > m.createdAt + m.ttl {
+		log.Printf("cache expire, domain: %s \n", domain)
+		delete(s.data, domain)
+		return dnsmessage.Message{}, false
+	}
 
-	return message, ok
+	return m.message, ok
 }
 
 func (s *Store) Set(domain string, message dnsmessage.Message) {
 	s.Lock()
-	s.data[domain] = message
+	s.data[domain] = entry{
+		message:   message,
+		ttl:       60,
+		createdAt: time.Now().Unix(),
+	}
+	s.Unlock()
+}
+
+func (s *Store) Delete(domain string) {
+	s.Lock()
+	delete(s.data, domain)
 	s.Unlock()
 }
