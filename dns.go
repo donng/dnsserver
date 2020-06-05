@@ -2,10 +2,8 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"net"
-	"net/http"
 	"sync"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -53,21 +51,16 @@ func main() {
 	port := flag.Int("p", Port, "服务端口号，默认为53")
 	flag.Parse()
 
+	// dns api service
+	go startApi()
+
 	s := NewDNSService()
 	s.Listen(*port)
-
-	// 启动查询缓存的服务
-	go func() {
-		http.HandleFunc("/cache", func(writer http.ResponseWriter, request *http.Request) {
-			fmt.Fprintf(writer, "%+v", s.store.data)
-		})
-		http.ListenAndServe(":8089", nil)
-	}()
 }
 
 func NewDNSService() *DNSService {
 	dns := DNSService{
-		store:      NewStore(),
+		store:      store,
 		forwarders: make(map[string][]Packet),
 	}
 	return &dns

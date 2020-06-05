@@ -18,8 +18,10 @@ type entry struct {
 	createdAt int64
 }
 
-func NewStore() *Store {
-	return &Store{data: make(map[string]entry)}
+var store *Store
+
+func init() {
+	store = &Store{data: make(map[string]entry)}
 }
 
 func (s *Store) Get(domain string) (dnsmessage.Message, bool) {
@@ -49,5 +51,11 @@ func (s *Store) Set(domain string, message dnsmessage.Message) {
 func (s *Store) Delete(domain string) {
 	s.Lock()
 	delete(s.data, domain)
+	s.Unlock()
+}
+
+func (s *Store) Flush() {
+	s.Lock()
+	s.data = make(map[string]entry)
 	s.Unlock()
 }
