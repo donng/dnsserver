@@ -42,7 +42,7 @@ func (s *Store) Set(domain string, message dnsmessage.Message) {
 	s.Lock()
 	s.data[domain] = entry{
 		message:   message,
-		ttl:       60,
+		ttl:       *ttl,
 		createdAt: time.Now().Unix(),
 	}
 	s.Unlock()

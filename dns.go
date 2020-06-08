@@ -33,7 +33,10 @@ const (
 	Length = 512
 )
 
-var rw sync.RWMutex
+var (
+	ttl *int64
+	rw sync.RWMutex
+)
 
 // 知识点1：根据包 Header 中的 ID 来对应 DNS 的查询和响应
 // 知识点2：根据包 Header 中的 Response 判断是 DNS 查询还是转发的响应
@@ -48,6 +51,7 @@ var rw sync.RWMutex
 // 客户端访问服务： nslookup somewhere.com some.dns.server
 // dig @localhost somewhere.com
 func main() {
+	ttl = flag.Int64("ttl", 60, "DNS缓存过期时间，单位为秒")
 	port := flag.Int("p", Port, "服务端口号，默认为53")
 	flag.Parse()
 
