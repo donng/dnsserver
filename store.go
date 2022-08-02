@@ -2,6 +2,7 @@ package main
 
 import (
 	"golang.org/x/net/dns/dnsmessage"
+
 	"log"
 	"sync"
 	"time"

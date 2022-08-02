@@ -56,7 +56,7 @@ func main() {
 	flag.Parse()
 
 	// dns api service
-	go startApi()
+	startApi()
 
 	s := NewDNSService()
 	s.Listen(*port)
