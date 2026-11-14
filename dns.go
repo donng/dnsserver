@@ -17,9 +17,10 @@ type DNSInterface interface {
 }
 
 type DNSService struct {
-	conn       *net.UDPConn
-	store      *Store
-	forwarders map[string][]Packet
+	conn         *net.UDPConn
+	store        *Store
+	forwardersMu sync.Mutex
+	forwarders   map[string][]Packet
 }
 
 // 包数据
@@ -33,10 +34,7 @@ const (
 	Length = 512
 )
 
-var (
-	ttl *int64
-	rw sync.RWMutex
-)
+var ttl *int64
 
 // 知识点1：根据包 Header 中的 ID 来对应 DNS 的查询和响应
 // 知识点2：根据包 Header 中的 Response 判断是 DNS 查询还是转发的响应
@@ -108,18 +106,8 @@ func (s *DNSService) Query(p Packet) {
 	if p.message.Response {
 		// cache
 		s.store.Set(domain, p.message)
-		// get client addr
-		for i, v := range s.forwarders[domain] {
-			if v.message.ID == p.message.ID {
-				go s.Send(p.message, v.addr)
-				// remove current client
-				if len(s.forwarders[domain])-1 == i {
-					s.forwarders[domain] = s.forwarders[domain][:len(s.forwarders[domain])-1]
-				} else {
-					s.forwarders[domain] = append(s.forwarders[domain][:i], s.forwarders[domain][i+1:]...)
-				}
-				break
-			}
+		if client, ok := s.takeForwarder(domain, p.message.ID); ok {
+			go s.Send(p.message, client.addr)
 		}
 		return
 	}
@@ -132,14 +120,29 @@ func (s *DNSService) Query(p Packet) {
 		go s.Send(p.message, p.addr)
 	}
 	//  if cache not exist, add forwarders and forward
-	rw.Lock()
-	s.forwarders[domain] = append(s.forwarders[domain], Packet{
-		addr:    p.addr,
-		message: p.message,
-	})
-	rw.Unlock()
+	s.forwardersMu.Lock()
+	s.forwarders[domain] = append(s.forwarders[domain], p)
+	s.forwardersMu.Unlock()
 
 	s.Forward(p.message)
+}
+
+func (s *DNSService) takeForwarder(domain string, id uint16) (Packet, bool) {
+	s.forwardersMu.Lock()
+	defer s.forwardersMu.Unlock()
+
+	pending := s.forwarders[domain]
+	for i, packet := range pending {
+		if packet.message.ID != id {
+			continue
+		}
+		copy(pending[i:], pending[i+1:])
+		last := len(pending) - 1
+		pending[last] = Packet{}
+		s.forwarders[domain] = pending[:last]
+		return packet, true
+	}
+	return Packet{}, false
 }
 
 func (s *DNSService) Send(message dnsmessage.Message, addr *net.UDPAddr) {
