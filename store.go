@@ -28,13 +28,13 @@ func init() {
 func (s *Store) Get(domain string) (dnsmessage.Message, bool) {
 	s.Lock()
 	m, ok := s.data[domain]
-	s.Unlock()
-	// check if cache expire
-	if ok && time.Now().Unix() > m.createdAt + m.ttl {
-		log.Printf("cache expire, domain: %s \n", domain)
+	if ok && time.Now().Unix() > m.createdAt+m.ttl {
 		delete(s.data, domain)
+		s.Unlock()
+		log.Printf("cache expire, domain: %s \n", domain)
 		return dnsmessage.Message{}, false
 	}
+	s.Unlock()
 
 	return m.message, ok
 }

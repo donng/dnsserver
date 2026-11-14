@@ -10,7 +10,7 @@ git clone https://github.com/donng/dnsserver.git
 
 运行程序：
 ```bash
-go run *.go
+go run .
 ```
 
 测试结果：
